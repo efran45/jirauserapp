@@ -141,40 +141,48 @@ class JiraUserApp:
         
         ttk.Button(action_frame, text="✓ Validate Token", command=self.validate_token_async, width=20).pack(side="left", padx=(0, 5))
         
-        # Tab 2: Users & Groups
+        # Tab 2: Data (Users & Groups with sub-tabs)
         data_tab = ttk.Frame(notebook, padding=10)
-        notebook.add(data_tab, text="👥 Users & Groups")
+        notebook.add(data_tab, text="👥 Data")
         
         # Tab 3: Products
         products_tab = ttk.Frame(notebook, padding=10)
         notebook.add(products_tab, text="📦 Products")
         
-        # Setup Users & Groups tab
-        self.setup_users_groups_tab(data_tab)
+        # Setup Data tab (contains Users/Groups sub-tabs)
+        self.setup_users_tab(data_tab)
         
         # Setup Products tab
         self.setup_products_tab(products_tab)
         
+        # Store notebook reference for tab switching
+        self.notebook = notebook
+        
         print("=== UI Setup Complete ===")
     
-    def setup_users_groups_tab(self, parent):
+    def setup_users_tab(self, parent):
+        """Setup the Users tab with compact filters"""
         
-        # Top action bar
+        # Top action bar with fetch buttons back
         action_bar = ttk.Frame(parent)
         action_bar.pack(fill="x", pady=(0, 10))
         
         ttk.Button(action_bar, text="📥 Fetch Users", command=self.fetch_users_async, width=15).pack(side="left", padx=(0, 5))
         ttk.Button(action_bar, text="👥 Fetch Groups", command=self.fetch_groups_async, width=15).pack(side="left", padx=(0, 5))
+        
+        # Add Bulk Edit button (initially disabled)
+        self.bulk_edit_btn = ttk.Button(action_bar, text="⚡ Bulk Edit", command=self.show_bulk_edit_dialog, width=15, state="disabled")
+        self.bulk_edit_btn.pack(side="left", padx=(0, 5))
+        
         ttk.Button(action_bar, text="💾 Export CSV", command=self.export_csv, width=15).pack(side="left", padx=(0, 5))
-        ttk.Button(action_bar, text="🗑️ Clear", command=self.clear_data, width=12).pack(side="left", padx=(0, 5))
         
         # Separator
         ttk.Separator(action_bar, orient="vertical").pack(side="left", fill="y", padx=10)
         
-        # Organization API checkbox on this tab too
+        # Organization API checkbox
         ttk.Checkbutton(
             action_bar,
-            text="Enable Org API (for last login)",
+            text="Enable Org API",
             variable=self.use_org_api,
             command=self.toggle_org_api
         ).pack(side="left", padx=(0, 10))
@@ -186,136 +194,100 @@ class JiraUserApp:
         self.status = ttk.Label(action_bar, text="Ready", foreground="blue", font=("", 10, "bold"))
         self.status.pack(side="left", padx=10)
 
-        # Search bar
-        search_frame = ttk.LabelFrame(parent, text="🔍 Search & Filters", padding=10)
-        search_frame.pack(fill="x", pady=(0, 10))
+        # Compact filters - all in ONE line
+        filter_frame = ttk.LabelFrame(parent, text="🔍 Filters", padding=8)
+        filter_frame.pack(fill="x", pady=(0, 10))
         
-        # Search row
-        search_row = ttk.Frame(search_frame)
-        search_row.pack(fill="x", pady=(0, 10))
+        # Single row with all filters
+        filter_row = ttk.Frame(filter_frame)
+        filter_row.pack(fill="x")
         
-        ttk.Label(search_row, text="Search:").pack(side="left")
-        search_entry = ttk.Entry(search_row, textvariable=self.search_var, width=40)
-        search_entry.pack(side="left", padx=(10, 0))
+        # Search
+        ttk.Label(filter_row, text="Search:").pack(side="left", padx=(0, 5))
+        search_entry = ttk.Entry(filter_row, textvariable=self.search_var, width=25)
+        search_entry.pack(side="left", padx=(0, 15))
         self.search_var.trace_add("write", lambda *_: self.filter_data())
         
-        # Filters row 1
-        filter_row1 = ttk.Frame(search_frame)
-        filter_row1.pack(fill="x", pady=(0, 8))
-        
-        ttk.Label(filter_row1, text="Status:").pack(side="left")
-        self.status_filter = ttk.Combobox(filter_row1, width=15, state="readonly")
+        # Status
+        ttk.Label(filter_row, text="Status:").pack(side="left", padx=(0, 5))
+        self.status_filter = ttk.Combobox(filter_row, width=12, state="readonly")
         self.status_filter['values'] = ("All", "Active", "Inactive", "active", "inactive")
         self.status_filter.current(0)
-        self.status_filter.pack(side="left", padx=(10, 20))
+        self.status_filter.pack(side="left", padx=(0, 15))
         self.status_filter.bind("<<ComboboxSelected>>", lambda e: self.filter_data())
         
-        ttk.Label(filter_row1, text="Type:").pack(side="left")
-        self.type_filter = ttk.Combobox(filter_row1, width=15, state="readonly")
+        # Type
+        ttk.Label(filter_row, text="Type:").pack(side="left", padx=(0, 5))
+        self.type_filter = ttk.Combobox(filter_row, width=12, state="readonly")
         self.type_filter['values'] = ("All", "atlassian", "app", "customer")
         self.type_filter.current(0)
-        self.type_filter.pack(side="left", padx=(10, 0))
+        self.type_filter.pack(side="left", padx=(0, 15))
         self.type_filter.bind("<<ComboboxSelected>>", lambda e: self.filter_data())
         
-        # Filters row 2 - Date range with calendar pickers
-        filter_row2 = ttk.Frame(search_frame)
-        filter_row2.pack(fill="x")
+        # Date range
+        ttk.Label(filter_row, text="Last Active:").pack(side="left", padx=(0, 5))
         
-        ttk.Label(filter_row2, text="Last Active:").pack(side="left")
-        
-        # Date From with calendar (start empty)
         self.date_from_picker = DateEntry(
-            filter_row2, 
-            width=12, 
+            filter_row, 
+            width=10, 
             background='darkblue',
             foreground='white', 
             borderwidth=2,
             date_pattern='yyyy-mm-dd'
         )
-        self.date_from_picker.pack(side="left", padx=(10, 5))
-        # Clear the initial date to make it empty
+        self.date_from_picker.pack(side="left", padx=(0, 3))
         self.date_from_picker.delete(0, 'end')
         self.date_from_picker.bind("<<DateEntrySelected>>", lambda e: self.filter_data())
-        # Also trigger filter when manually typed
         self.date_from_picker.bind("<KeyRelease>", lambda e: self.filter_data())
         
-        ttk.Label(filter_row2, text="to").pack(side="left", padx=5)
+        ttk.Label(filter_row, text="to").pack(side="left", padx=3)
         
-        # Date To with calendar (start empty)
         self.date_to_picker = DateEntry(
-            filter_row2, 
-            width=12, 
+            filter_row, 
+            width=10, 
             background='darkblue',
             foreground='white', 
             borderwidth=2,
             date_pattern='yyyy-mm-dd'
         )
-        self.date_to_picker.pack(side="left", padx=(0, 10))
-        # Clear the initial date to make it empty
+        self.date_to_picker.pack(side="left", padx=(0, 15))
         self.date_to_picker.delete(0, 'end')
         self.date_to_picker.bind("<<DateEntrySelected>>", lambda e: self.filter_data())
-        # Also trigger filter when manually typed
         self.date_to_picker.bind("<KeyRelease>", lambda e: self.filter_data())
         
-        ttk.Label(filter_row2, text="(Click calendar icon or type YYYY-MM-DD)", font=("", 8)).pack(side="left", padx=(0, 20))
-        
-        ttk.Button(filter_row2, text="Clear Filters", command=self.clear_filters, width=12).pack(side="left")
-        
-        # Column visibility controls
-        column_frame = ttk.LabelFrame(search_frame, text="👁️ Visible Columns", padding=10)
-        column_frame.pack(fill="x", pady=(10, 0))
-        
-        self.column_vars = {
-            "name": tk.BooleanVar(value=True),
-            "email": tk.BooleanVar(value=True),
-            "id": tk.BooleanVar(value=True),
-            "type": tk.BooleanVar(value=True),
-            "status": tk.BooleanVar(value=True),
-            "last_active": tk.BooleanVar(value=True)
-        }
-        
-        col_checks_frame = ttk.Frame(column_frame)
-        col_checks_frame.pack(fill="x")
-        
-        for idx, (col_id, col_label) in enumerate([
-            ("name", "Name"),
-            ("email", "Email"),
-            ("id", "Account ID"),
-            ("type", "Type"),
-            ("status", "Status"),
-            ("last_active", "Last Active")
-        ]):
-            ttk.Checkbutton(
-                col_checks_frame,
-                text=col_label,
-                variable=self.column_vars[col_id],
-                command=self.update_column_visibility
-            ).pack(side="left", padx=(0, 15))
-        
-        print("Filters section complete!")
+        # Clear button
+        ttk.Button(filter_row, text="Clear", command=self.clear_filters, width=8).pack(side="left")
 
-        # Progress bar
+        # Progress bar (shared by both sub-tabs)
         self.progress = ttk.Progressbar(parent, mode='indeterminate')
-        self.progress.pack(fill="x", pady=(0, 10))
+        self.progress.pack(fill="x", pady=(10, 10))
         self.progress.pack_forget()
 
-        # Data view
+        # Data view - single tree shared by both Users and Groups sub-tabs
         tree_frame = ttk.Frame(parent)
-        tree_frame.pack(fill="both", expand=True)
+        tree_frame.pack(fill="both", expand=True, pady=(0, 5))
 
+        # Add "select" column to columns tuple
         self.tree = ttk.Treeview(
             tree_frame,
-            columns=("name", "email", "id", "type", "status", "last_active"),
-            show="headings"
+            columns=("select", "name", "email", "id", "type", "status", "last_active"),
+            show="tree headings"
         )
 
+        # Configure select column
+        self.tree.heading("select", text="☑", command=self.toggle_select_all)
+        self.tree.column("select", width=30, minwidth=30, anchor="center", stretch=False)
+        
+        # Configure other columns with stretch enabled
         for col, w in zip(
             ("name", "email", "id", "type", "status", "last_active"),
             (200, 250, 200, 100, 80, 180)
         ):
-            # Use functools.partial to ensure proper binding on all platforms
             self.tree.heading(col, text=col.replace("_", " ").title(), command=partial(self.sort_by_column, col))
-            self.tree.column(col, width=w)
+            self.tree.column(col, width=w, minwidth=w, stretch=True)
+        
+        # Track selected items
+        self.selected_items = set()
 
         ysb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
         xsb = ttk.Scrollbar(tree_frame, orient="horizontal", command=self.tree.xview)
@@ -327,7 +299,7 @@ class JiraUserApp:
         
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
-
+        
         # Bind both TreeviewOpen event and double-click for cross-platform compatibility
         self.tree.bind("<<TreeviewOpen>>", self.on_group_expand)
         self.tree.bind("<Double-Button-1>", self.on_item_double_click)
@@ -336,15 +308,56 @@ class JiraUserApp:
         self.tree.tag_configure("product", background="#e8f4f8")
         
         # Add right-click context menu for users
-        self.tree.bind("<Button-3>", self.show_context_menu)  # Right-click on Windows/Linux
-        self.tree.bind("<Button-2>", self.show_context_menu)  # Right-click on Mac
+        self.tree.bind("<Button-3>", self.show_context_menu)
+        self.tree.bind("<Button-2>", self.show_context_menu)
         
         # Create context menu
         self.context_menu = tk.Menu(self.root, tearoff=0)
         self.context_menu.add_command(label="🔗 Open User Profile in Jira", command=self.open_user_profile)
         self.context_menu.add_separator()
+        
+        # User Management Actions submenu
+        user_mgmt_menu = tk.Menu(self.context_menu, tearoff=0)
+        self.context_menu.add_cascade(label="👤 User Management", menu=user_mgmt_menu)
+        user_mgmt_menu.add_command(label="🚫 Deactivate User", command=self.deactivate_user)
+        user_mgmt_menu.add_command(label="✅ Reactivate User", command=self.reactivate_user)
+        user_mgmt_menu.add_separator()
+        user_mgmt_menu.add_command(label="👥 Add to Group...", command=self.add_user_to_group)
+        user_mgmt_menu.add_command(label="➖ Remove from Group...", command=self.remove_user_from_group)
+        user_mgmt_menu.add_separator()
+        user_mgmt_menu.add_command(label="📦 Manage Product Access...", command=self.manage_product_access)
+        
+        self.context_menu.add_separator()
         self.context_menu.add_command(label="📋 Copy Account ID", command=self.copy_account_id)
         self.context_menu.add_command(label="📧 Copy Email", command=self.copy_email)
+        
+        # Bind click on tree to handle checkbox toggle
+        self.tree.bind("<Button-1>", self.on_tree_click)
+        
+        # Force update to ensure window dimensions are known
+        self.tree.update_idletasks()
+        
+        # Get the actual available width and redistribute
+        self.adjust_column_widths()
+
+        # Sub-notebook for Users/Groups tabs (below tree now, just for labels/organization)
+        # Sub-notebook for Users/Groups tabs (below tree now, just for labels/organization)
+        sub_tabs_frame = ttk.Frame(parent)
+        sub_tabs_frame.pack(fill="x", pady=(0, 5))
+        
+        self.data_notebook = ttk.Notebook(sub_tabs_frame)
+        self.data_notebook.pack(fill="x")
+        
+        # Users sub-tab (minimal - just a label)
+        users_info = ttk.Frame(self.data_notebook)
+        self.data_notebook.add(users_info, text="👤 Users View")
+        
+        # Groups sub-tab (minimal - just a label)
+        groups_info = ttk.Frame(self.data_notebook)
+        self.data_notebook.add(groups_info, text="👥 Groups View")
+        
+        # Bind tab change to switch view
+        self.data_notebook.bind("<<NotebookTabChanged>>", self.on_data_tab_changed)
         
         # Footer with result count
         footer_frame = ttk.Frame(parent)
@@ -354,12 +367,61 @@ class JiraUserApp:
         
         self.result_count_label = ttk.Label(
             footer_frame, 
-            text="No results loaded", 
+            text="No data loaded - Click 'Fetch Users' or 'Fetch Groups'", 
             font=("", 9),
             foreground="gray"
         )
         self.result_count_label.pack(side="left", padx=10)
     
+    def setup_groups_tab(self, parent):
+        """Setup the Groups tab - REMOVED, now handled by sub-tabs"""
+        pass
+    def on_data_tab_changed(self, event):
+        """Handle switching between Users and Groups sub-tabs"""
+        selected_tab = self.data_notebook.index(self.data_notebook.select())
+        if selected_tab == 0:  # Users tab
+            self.current_view = "users"
+            self.display_current_data()
+        elif selected_tab == 1:  # Groups tab
+            self.current_view = "groups"
+            self.display_current_data()
+    
+    def display_current_data(self):
+        """Display data based on current view"""
+        if self.current_view == "users":
+            if self.users_data:
+                self.filter_data()  # This will call display_users with filters
+        elif self.current_view == "groups":
+            if self.groups_data:
+                self.display_groups()  # Show all groups
+    
+    def display_groups(self):
+        """Display all groups (unfiltered)"""
+        self.clear_tree()
+        for g in self.groups_data:
+            item = self.tree.insert(
+                "",
+                "end",
+                values=("", g["name"], "", g["groupId"], "", g.get("memberCount", "")),
+                tags=("group",)
+            )
+            self.tree.insert(item, "end", values=("", "Loading...", "", "", "", "", ""), tags=("placeholder",))
+        
+        # Update count
+        if hasattr(self, 'result_count_label'):
+            self.result_count_label.config(
+                text=f"Showing {len(self.groups_data)} group(s)",
+                foreground="green"
+            )
+        
+        # Adjust column widths to fill window
+        self.root.after(10, self.adjust_column_widths)
+    
+    
+    def setup_groups_tab(self, parent):
+        """Setup the Groups tab - REMOVED, now handled by sub-tabs"""
+        pass
+        
     def setup_products_tab(self, parent):
         # Top action bar
         action_bar = ttk.Frame(parent)
@@ -719,9 +781,44 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
     def auth(self):
         return HTTPBasicAuth(self.email.get().strip(), self.api_token.get().strip())
 
+    
+    def adjust_column_widths(self):
+        """Adjust column widths to fill available space proportionally"""
+        try:
+            # Get the tree's actual width
+            tree_width = self.tree.winfo_width()
+            
+            # If width is too small (not yet rendered), skip
+            if tree_width <= 1:
+                return
+            
+            # Account for checkbox column (fixed 30px) and scrollbar (~20px)
+            available_width = tree_width - 30 - 20
+            
+            # Define proportions for each column (should sum to 1.0)
+            proportions = {
+                "name": 0.20,        # 20%
+                "email": 0.25,       # 25%
+                "id": 0.20,          # 20%
+                "type": 0.10,        # 10%
+                "status": 0.08,      # 8%
+                "last_active": 0.17  # 17%
+            }
+            
+            # Calculate and set widths
+            for col, proportion in proportions.items():
+                width = int(available_width * proportion)
+                self.tree.column(col, width=width)
+        except Exception as e:
+            # If anything goes wrong, silently continue
+            pass
+    
     def clear_tree(self):
         for i in self.tree.get_children():
             self.tree.delete(i)
+        # Clear selections when clearing tree
+        self.selected_items.clear()
+        self.update_bulk_edit_button()
 
     def clear_data(self):
         self.clear_tree()
@@ -806,6 +903,43 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                 self.root.after(0, lambda: self.status.config(text="Token valid", foreground="green"))
             else:
                 raise Exception(r.text)
+        except Exception as e:
+            self.root.after(0, lambda: messagebox.showerror("Invalid Token", str(e)))
+            self.root.after(0, lambda: self.status.config(text="Token invalid", foreground="red"))
+    
+    def validate_and_fetch_all(self):
+        """Validate token and automatically fetch users and groups"""
+        threading.Thread(target=self._validate_and_fetch_all_thread, daemon=True).start()
+    
+    def _validate_and_fetch_all_thread(self):
+        """Thread worker for validating and fetching all data"""
+        self.root.after(0, lambda: self.status.config(text="Validating token...", foreground="orange"))
+        try:
+            # Validate token first
+            r = requests.get(
+                f"{self.jira_url.get().rstrip('/')}/rest/api/3/myself",
+                auth=self.auth(),
+                headers={"Accept": "application/json"}
+            )
+            if r.status_code != 200:
+                raise Exception(r.text)
+            
+            self.root.after(0, lambda: self.status.config(text="Token valid! Loading data...", foreground="green"))
+            
+            # Auto-fetch users
+            self.root.after(100, self.fetch_users_async)
+            
+            # Auto-fetch groups (after a small delay)
+            self.root.after(1000, self.fetch_groups_async)
+            
+            # Switch to Users tab
+            self.root.after(1500, lambda: self.notebook.select(1))  # Tab index 1 is Users
+            
+            self.root.after(2000, lambda: messagebox.showinfo(
+                "Success", 
+                "Token validated!\nUsers and groups are loading..."
+            ))
+            
         except Exception as e:
             self.root.after(0, lambda: messagebox.showerror("Invalid Token", str(e)))
             self.root.after(0, lambda: self.status.config(text="Token invalid", foreground="red"))
@@ -1030,13 +1164,15 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                 "",
                 "end",
                 values=(
+                    "☐",  # Checkbox - unchecked by default
                     u.get("displayName", ""),
                     email,
                     u.get("accountId", ""),
                     u.get("accountType", ""),
                     "Active" if u.get("active") else "Inactive",
                     last_active
-                )
+                ),
+                tags=("user",)  # Add user tag for selection
             )
         
         # Update footer count
@@ -1044,6 +1180,9 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
             text=f"Showing {len(users)} user(s)",
             foreground="green"
         )
+        
+        # Adjust column widths to fill window
+        self.root.after(10, self.adjust_column_widths)
 
     def display_users_org(self, users):
         self.clear_tree()
@@ -1082,6 +1221,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                 "",
                 "end",
                 values=(
+                    "☐",  # Checkbox - unchecked by default
                     name,
                     email,
                     account_id,
@@ -1096,14 +1236,17 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
             product_access = u.get("product_access", [])
             if product_access:
                 self.users_product_access[account_id] = product_access
-                # Add placeholder to make it expandable
-                self.tree.insert(user_item, "end", values=("Loading products...", "", "", "", "", ""), tags=("placeholder",))
+                # Add placeholder to make it expandable (7 values to match column count)
+                self.tree.insert(user_item, "end", values=("", "Loading products...", "", "", "", "", ""), tags=("placeholder",))
         
         # Update footer count
         self.result_count_label.config(
             text=f"Showing {len(users)} user(s)",
             foreground="green"
         )
+        
+        # Adjust column widths to fill window
+        self.root.after(10, self.adjust_column_widths)
 
     # ---------------- Groups ---------------- #
     def fetch_groups(self):
@@ -1138,10 +1281,10 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                     item = self.tree.insert(
                         "",
                         "end",
-                        values=(g["name"], "", g["groupId"], "", g.get("memberCount", "")),
+                        values=("", g["name"], "", g["groupId"], "", g.get("memberCount", "")),  # Empty checkbox for groups
                         tags=("group",)
                     )
-                    self.tree.insert(item, "end", values=("Loading...", "", "", "", "", ""), tags=("placeholder",))
+                    self.tree.insert(item, "end", values=("", "Loading...", "", "", "", "", ""), tags=("placeholder",))
                 self.status.config(text=f"{len(groups)} groups loaded", foreground="green")
                 self.progress.stop()
                 self.progress.pack_forget()
@@ -1166,8 +1309,10 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
         
         # Handle group expansion
         if "group" in tags:
-            group_name = self.tree.item(item, "values")[0]
-            if group_name in self.groups_members:
+            values = self.tree.item(item, "values")
+            group_name = values[1] if len(values) > 1 else ""  # Index 1 because of checkbox column at index 0
+            
+            if not group_name or group_name in self.groups_members:
                 return
 
             self.tree.delete(*self.tree.get_children(item))
@@ -1194,6 +1339,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                         item,
                         "end",
                         values=(
+                            "",  # Empty checkbox for group members
                             m.get("displayName", ""),
                             m.get("emailAddress", ""),
                             m.get("accountId", ""),
@@ -1209,7 +1355,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
         # Handle user expansion (show product access)
         elif "user" in tags:
             values = self.tree.item(item, "values")
-            account_id = values[2] if len(values) > 2 else ""
+            account_id = values[3] if len(values) > 3 else ""  # Index 3: checkbox(0), name(1), email(2), account_id(3)
             
             # Check if already loaded
             children = self.tree.get_children(item)
@@ -1226,7 +1372,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                 self.tree.insert(
                     item,
                     "end",
-                    values=("No product access data", "", "", "", "", ""),
+                    values=("", "No product access data", "", "", "", "", ""),  # Add checkbox column
                     tags=("product",)
                 )
                 return
@@ -1251,6 +1397,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                     item,
                     "end",
                     values=(
+                        "",  # Empty checkbox for product items
                         f"  📦 {product_name}",
                         "",
                         product_url,
@@ -1417,21 +1564,105 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
             self.display_users(filtered)
     
     def filter_groups(self):
-        term = self.search_var.get().lower()
-        filtered_groups = [
-            g for g in self.groups_data
-            if term in (g.get("name", "").lower() or "") or
-               term in (g.get("groupId", "").lower() or "")
-        ]
+        # Get search term - if groups_search_var doesn't exist or is empty, show all
+        term = ""
+        if hasattr(self, 'groups_search_var'):
+            term = self.groups_search_var.get().lower()
+        
+        if term:
+            # Filter groups by search term
+            filtered_groups = [
+                g for g in self.groups_data
+                if term in (g.get("name", "").lower() or "") or
+                   term in (g.get("groupId", "").lower() or "")
+            ]
+        else:
+            # Show all groups when no search term
+            filtered_groups = self.groups_data
+        
         self.clear_tree()
         for g in filtered_groups:
             item = self.tree.insert(
                 "",
                 "end",
-                values=(g["name"], "", g["groupId"], "", g.get("memberCount", "")),
+                values=("", g["name"], "", g["groupId"], "", g.get("memberCount", "")),  # Empty checkbox for groups
                 tags=("group",)
             )
-            self.tree.insert(item, "end", values=("Loading...", "", "", "", "", ""), tags=("placeholder",))
+            self.tree.insert(item, "end", values=("", "Loading...", "", "", "", "", ""), tags=("placeholder",))
+        
+        # Update result count label
+        if hasattr(self, 'result_count_label'):
+            self.result_count_label.config(
+                text=f"Showing {len(filtered_groups)} group(s)",
+                foreground="green"
+            )
+    
+    # ---------------- Checkbox Selection ---------------- #
+    def on_tree_click(self, event):
+        """Handle clicks on the tree - toggle checkboxes if clicking select column"""
+        region = self.tree.identify_region(event.x, event.y)
+        column = self.tree.identify_column(event.x)
+        
+        # Check if clicked on the select column (#0 is tree column, #1 is first data column which is "select")
+        if column == "#1":  # Select column
+            item = self.tree.identify_row(event.y)
+            if item:
+                tags = self.tree.item(item, "tags")
+                # Only allow selection on top-level user items (not groups, not children)
+                if self.current_view == "users" and "user" in tags:
+                    self.toggle_item_selection(item)
+                    return "break"  # Prevent default behavior
+    
+    def toggle_item_selection(self, item):
+        """Toggle selection state of an item"""
+        if item in self.selected_items:
+            self.selected_items.remove(item)
+            self.tree.set(item, "select", "☐")
+        else:
+            self.selected_items.add(item)
+            self.tree.set(item, "select", "☑")
+        
+        # Update bulk edit button state
+        self.update_bulk_edit_button()
+    
+    def toggle_select_all(self):
+        """Toggle selection of all visible items"""
+        if self.current_view != "users":
+            return
+        
+        # Get all top-level items with "user" tag
+        all_items = [item for item in self.tree.get_children("") if "user" in self.tree.item(item, "tags")]
+        
+        if not all_items:
+            return
+        
+        # If all are selected, deselect all. Otherwise, select all
+        if len(self.selected_items) == len(all_items):
+            # Deselect all
+            for item in all_items:
+                self.selected_items.discard(item)
+                self.tree.set(item, "select", "☐")
+        else:
+            # Select all
+            for item in all_items:
+                self.selected_items.add(item)
+                self.tree.set(item, "select", "☑")
+        
+        self.update_bulk_edit_button()
+    
+    def clear_all_selections(self):
+        """Clear all selections"""
+        for item in list(self.selected_items):
+            self.tree.set(item, "select", "☐")
+        self.selected_items.clear()
+        self.update_bulk_edit_button()
+    
+    def update_bulk_edit_button(self):
+        """Enable/disable bulk edit button based on selection"""
+        if len(self.selected_items) > 0:
+            self.bulk_edit_btn.config(state="normal")
+        else:
+            self.bulk_edit_btn.config(state="disabled")
     
     # ---------------- Context Menu ---------------- #
     def show_context_menu(self, event):
@@ -1505,6 +1736,714 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
             self.status.config(text="Email copied to clipboard", foreground="blue")
         else:
             messagebox.showinfo("No Email", "This user has no email address")
+    
+    # ---------------- User Management Actions ---------------- #
+    def get_selected_user_info(self):
+        """Helper to get selected user information"""
+        selection = self.tree.selection()
+        if not selection:
+            return None
+        
+        item = selection[0]
+        values = self.tree.item(item, "values")
+        
+        if len(values) < 4:  # Now need at least 4: checkbox + name + email + account_id
+            return None
+        
+        return {
+            "name": values[1],  # Shifted by 1 due to checkbox column
+            "email": values[2],
+            "account_id": values[3],
+            "item": item
+        }
+    
+    def deactivate_user(self):
+        """Deactivate a user account"""
+        user = self.get_selected_user_info()
+        if not user:
+            messagebox.showwarning("No Selection", "Please select a user")
+            return
+        
+        # Confirm action
+        confirm = messagebox.askyesno(
+            "Confirm Deactivation",
+            f"Are you sure you want to DEACTIVATE this user?\n\n"
+            f"Name: {user['name']}\n"
+            f"Email: {user['email']}\n"
+            f"Account ID: {user['account_id']}\n\n"
+            f"⚠️ This will revoke their access to Jira."
+        )
+        
+        if not confirm:
+            return
+        
+        threading.Thread(target=self._deactivate_user_thread, args=(user,), daemon=True).start()
+    
+    def _deactivate_user_thread(self, user):
+        """Thread worker for deactivating user"""
+        try:
+            self.root.after(0, lambda: self.status.config(text=f"Deactivating {user['name']}...", foreground="orange"))
+            
+            # Note: Jira Cloud doesn't have a direct API to deactivate users
+            # This requires the Organization API (admin.atlassian.com)
+            if not self.org_api_key.get():
+                self.root.after(0, lambda: messagebox.showerror(
+                    "Organization API Required",
+                    "User deactivation requires the Organization API.\n\n"
+                    "Please enable and configure the Organization API in the Configuration tab."
+                ))
+                return
+            
+            # Deactivate via Organization API
+            url = f"https://api.atlassian.com/users/{user['account_id']}/manage/lifecycle/disable"
+            
+            response = requests.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {self.org_api_key.get()}",
+                    "Accept": "application/json"
+                },
+                timeout=30
+            )
+            
+            if response.status_code in [200, 204]:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Success",
+                    f"User {user['name']} has been deactivated successfully."
+                ))
+                self.root.after(0, lambda: self.status.config(text="User deactivated", foreground="green"))
+                # Refresh the user list
+                self.root.after(0, self.fetch_users_async)
+            else:
+                raise Exception(f"API returned status {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            error_msg = f"Failed to deactivate user: {str(e)}"
+            print(error_msg)
+            self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
+            self.root.after(0, lambda: self.status.config(text="Deactivation failed", foreground="red"))
+    
+    def reactivate_user(self):
+        """Reactivate a user account"""
+        user = self.get_selected_user_info()
+        if not user:
+            messagebox.showwarning("No Selection", "Please select a user")
+            return
+        
+        confirm = messagebox.askyesno(
+            "Confirm Reactivation",
+            f"Reactivate this user?\n\n"
+            f"Name: {user['name']}\n"
+            f"Email: {user['email']}\n"
+            f"Account ID: {user['account_id']}"
+        )
+        
+        if not confirm:
+            return
+        
+        threading.Thread(target=self._reactivate_user_thread, args=(user,), daemon=True).start()
+    
+    def _reactivate_user_thread(self, user):
+        """Thread worker for reactivating user"""
+        try:
+            self.root.after(0, lambda: self.status.config(text=f"Reactivating {user['name']}...", foreground="orange"))
+            
+            if not self.org_api_key.get():
+                self.root.after(0, lambda: messagebox.showerror(
+                    "Organization API Required",
+                    "User reactivation requires the Organization API.\n\n"
+                    "Please enable and configure the Organization API in the Configuration tab."
+                ))
+                return
+            
+            url = f"https://api.atlassian.com/users/{user['account_id']}/manage/lifecycle/enable"
+            
+            response = requests.post(
+                url,
+                headers={
+                    "Authorization": f"Bearer {self.org_api_key.get()}",
+                    "Accept": "application/json"
+                },
+                timeout=30
+            )
+            
+            if response.status_code in [200, 204]:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Success",
+                    f"User {user['name']} has been reactivated successfully."
+                ))
+                self.root.after(0, lambda: self.status.config(text="User reactivated", foreground="green"))
+                self.root.after(0, self.fetch_users_async)
+            else:
+                raise Exception(f"API returned status {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            error_msg = f"Failed to reactivate user: {str(e)}"
+            print(error_msg)
+            self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
+            self.root.after(0, lambda: self.status.config(text="Reactivation failed", foreground="red"))
+    
+    def add_user_to_group(self):
+        """Add selected user to a group"""
+        user = self.get_selected_user_info()
+        if not user:
+            messagebox.showwarning("No Selection", "Please select a user")
+            return
+        
+        # Fetch groups if not already loaded
+        if not self.groups_data:
+            self.status.config(text="Loading groups...", foreground="orange")
+            self.fetch_groups()
+            # Wait a moment for groups to load
+            self.root.after(1500, lambda: self._show_group_selector(user, "add"))
+            return
+        
+        self._show_group_selector(user, "add")
+    
+    def remove_user_from_group(self):
+        """Remove selected user from a group"""
+        user = self.get_selected_user_info()
+        if not user:
+            messagebox.showwarning("No Selection", "Please select a user")
+            return
+        
+        if not self.groups_data:
+            self.status.config(text="Loading groups...", foreground="orange")
+            self.fetch_groups()
+            self.root.after(1500, lambda: self._show_group_selector(user, "remove"))
+            return
+        
+        self._show_group_selector(user, "remove")
+    
+    def _show_group_selector(self, user, action):
+        """Show dialog to select a group for add/remove action"""
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"{'Add to' if action == 'add' else 'Remove from'} Group")
+        dialog.geometry("500x400")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        ttk.Label(dialog, text=f"User: {user['name']} ({user['email']})", font=("", 10, "bold")).pack(pady=10)
+        ttk.Label(dialog, text=f"Select a group to {'add user to' if action == 'add' else 'remove user from'}:").pack(pady=5)
+        
+        # Search box
+        search_var = tk.StringVar()
+        search_frame = ttk.Frame(dialog)
+        search_frame.pack(fill="x", padx=10, pady=5)
+        ttk.Label(search_frame, text="Search:").pack(side="left")
+        search_entry = ttk.Entry(search_frame, textvariable=search_var)
+        search_entry.pack(side="left", fill="x", expand=True, padx=5)
+        
+        # Listbox with scrollbar
+        list_frame = ttk.Frame(dialog)
+        list_frame.pack(fill="both", expand=True, padx=10, pady=5)
+        
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set)
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Populate groups
+        group_names = [g["name"] for g in self.groups_data]
+        group_names.sort()
+        
+        def update_list(*args):
+            term = search_var.get().lower()
+            listbox.delete(0, tk.END)
+            for name in group_names:
+                if term in name.lower():
+                    listbox.insert(tk.END, name)
+        
+        search_var.trace("w", update_list)
+        update_list()
+        
+        # Buttons
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill="x", padx=10, pady=10)
+        
+        def on_ok():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a group")
+                return
+            
+            group_name = listbox.get(selection[0])
+            dialog.destroy()
+            
+            if action == "add":
+                threading.Thread(target=self._add_user_to_group_thread, args=(user, group_name), daemon=True).start()
+            else:
+                threading.Thread(target=self._remove_user_from_group_thread, args=(user, group_name), daemon=True).start()
+        
+        ttk.Button(btn_frame, text="OK", command=on_ok, width=15).pack(side="left", padx=5)
+        ttk.Button(btn_frame, text="Cancel", command=dialog.destroy, width=15).pack(side="left")
+        
+        # Bind double-click
+        listbox.bind("<Double-Button-1>", lambda e: on_ok())
+    
+    def _add_user_to_group_thread(self, user, group_name):
+        """Thread worker for adding user to group"""
+        try:
+            self.root.after(0, lambda: self.status.config(text=f"Adding {user['name']} to {group_name}...", foreground="orange"))
+            
+            response = requests.post(
+                f"{self.jira_url.get().rstrip('/')}/rest/api/3/group/user",
+                params={"groupname": group_name},
+                json={"accountId": user['account_id']},
+                auth=self.auth(),
+                headers={
+                    "Accept": "application/json",
+                    "Content-Type": "application/json"
+                },
+                timeout=30
+            )
+            
+            if response.status_code in [200, 201]:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Success",
+                    f"User {user['name']} added to group '{group_name}' successfully."
+                ))
+                self.root.after(0, lambda: self.status.config(text="User added to group", foreground="green"))
+            else:
+                raise Exception(f"API returned status {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            error_msg = f"Failed to add user to group: {str(e)}"
+            print(error_msg)
+            self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
+            self.root.after(0, lambda: self.status.config(text="Failed to add to group", foreground="red"))
+    
+    def _remove_user_from_group_thread(self, user, group_name):
+        """Thread worker for removing user from group"""
+        try:
+            self.root.after(0, lambda: self.status.config(text=f"Removing {user['name']} from {group_name}...", foreground="orange"))
+            
+            response = requests.delete(
+                f"{self.jira_url.get().rstrip('/')}/rest/api/3/group/user",
+                params={
+                    "groupname": group_name,
+                    "accountId": user['account_id']
+                },
+                auth=self.auth(),
+                headers={"Accept": "application/json"},
+                timeout=30
+            )
+            
+            if response.status_code in [200, 204]:
+                self.root.after(0, lambda: messagebox.showinfo(
+                    "Success",
+                    f"User {user['name']} removed from group '{group_name}' successfully."
+                ))
+                self.root.after(0, lambda: self.status.config(text="User removed from group", foreground="green"))
+            else:
+                raise Exception(f"API returned status {response.status_code}: {response.text}")
+                
+        except Exception as e:
+            error_msg = f"Failed to remove user from group: {str(e)}"
+            print(error_msg)
+            self.root.after(0, lambda: messagebox.showerror("Error", error_msg))
+            self.root.after(0, lambda: self.status.config(text="Failed to remove from group", foreground="red"))
+    
+    def manage_product_access(self):
+        """Manage product access for a user"""
+        user = self.get_selected_user_info()
+        if not user:
+            messagebox.showwarning("No Selection", "Please select a user")
+            return
+        
+        messagebox.showinfo(
+            "Product Access Management",
+            "Product access management is done through the Atlassian Admin portal.\n\n"
+            f"Opening the user profile for {user['name']}...\n\n"
+            "You can manage product access in the 'Products' section of the user profile."
+        )
+        
+        self.open_user_profile()
+    
+    # ---------------- Bulk Actions ---------------- #
+    def show_bulk_edit_dialog(self):
+        """Show bulk edit dialog for selected users"""
+        if self.current_view != "users":
+            messagebox.showinfo("Info", "Bulk edit is only available in Users view.")
+            return
+        
+        if not self.selected_items:
+            messagebox.showwarning("No Selection", "Please select users from the main view first.")
+            return
+        
+        # Get selected user data
+        selected_users = []
+        for item in self.selected_items:
+            values = self.tree.item(item, "values")
+            if len(values) >= 4:
+                selected_users.append({
+                    "name": values[1],
+                    "email": values[2],
+                    "account_id": values[3],
+                    "status": values[5] if len(values) > 5 else "Unknown"
+                })
+        
+        if not selected_users:
+            messagebox.showwarning("Error", "Could not retrieve user data for selected items.")
+            return
+        
+        # Create dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Bulk Edit Users")
+        dialog.geometry("600x500")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Header
+        header_frame = ttk.Frame(dialog)
+        header_frame.pack(fill="x", padx=20, pady=15)
+        
+        ttk.Label(
+            header_frame, 
+            text="⚡ Bulk Edit Users", 
+            font=("", 16, "bold")
+        ).pack()
+        
+        ttk.Label(
+            header_frame,
+            text=f"{len(selected_users)} user(s) selected",
+            font=("", 10),
+            foreground="gray"
+        ).pack()
+        
+        # Selected users preview
+        preview_frame = ttk.LabelFrame(dialog, text="📋 Selected Users", padding=10)
+        preview_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        
+        # Create scrollable list of selected users
+        preview_list_frame = ttk.Frame(preview_frame)
+        preview_list_frame.pack(fill="both", expand=True)
+        
+        preview_scrollbar = ttk.Scrollbar(preview_list_frame)
+        preview_scrollbar.pack(side="right", fill="y")
+        
+        preview_listbox = tk.Listbox(
+            preview_list_frame, 
+            yscrollcommand=preview_scrollbar.set,
+            height=8
+        )
+        preview_listbox.pack(side="left", fill="both", expand=True)
+        preview_scrollbar.config(command=preview_listbox.yview)
+        
+        for user in selected_users:
+            preview_listbox.insert(tk.END, f"• {user['name']} ({user['email']})")
+        
+        # Action selection
+        action_frame = ttk.LabelFrame(dialog, text="🎯 Select Action", padding=15)
+        action_frame.pack(fill="x", padx=20, pady=(0, 10))
+        
+        action_var = tk.StringVar(value="deactivate")
+        
+        actions = [
+            ("deactivate", "🚫 Deactivate Users", "Revoke access to Jira (requires Org API)"),
+            ("reactivate", "✅ Reactivate Users", "Restore access to Jira (requires Org API)"),
+            ("add_group", "➕ Add to Group", "Add users to a selected group"),
+            ("remove_group", "➖ Remove from Group", "Remove users from a selected group"),
+        ]
+        
+        for value, label, description in actions:
+            frame = ttk.Frame(action_frame)
+            frame.pack(fill="x", pady=2)
+            
+            ttk.Radiobutton(
+                frame,
+                text=label,
+                variable=action_var,
+                value=value
+            ).pack(side="left")
+            
+            ttk.Label(
+                frame,
+                text=f"  ({description})",
+                font=("", 8),
+                foreground="gray"
+            ).pack(side="left")
+        
+        # Warning message
+        warning_frame = ttk.Frame(dialog)
+        warning_frame.pack(fill="x", padx=20, pady=(0, 10))
+        
+        warning_label = ttk.Label(
+            warning_frame,
+            text="⚠️ Warning: Bulk actions cannot be undone. Please verify your selection.",
+            font=("", 9),
+            foreground="red"
+        )
+        warning_label.pack()
+        
+        # Buttons
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        def execute_action():
+            action = action_var.get()
+            count = len(selected_users)
+            
+            # Close the bulk edit dialog
+            dialog.destroy()
+            
+            # For group actions, show group selector first (which handles its own confirmation)
+            if action in ["add_group", "remove_group"]:
+                self._bulk_group_action(selected_users, action)
+            else:
+                # For direct actions (deactivate/reactivate), confirm first then execute
+                action_names = {
+                    "deactivate": "Deactivate",
+                    "reactivate": "Reactivate"
+                }
+                
+                confirm = messagebox.askyesno(
+                    "Confirm Bulk Action",
+                    f"Execute '{action_names.get(action, action)}' on {count} user(s)?\n\n"
+                    f"⚠️ This action cannot be undone!"
+                )
+                
+                if not confirm:
+                    return
+                
+                # Execute direct action
+                threading.Thread(
+                    target=self._execute_bulk_action_thread, 
+                    args=(selected_users, action), 
+                    daemon=True
+                ).start()
+        
+        def cancel_action():
+            dialog.destroy()
+        
+        ttk.Button(
+            btn_frame, 
+            text="▶ Execute", 
+            command=execute_action, 
+            width=20
+        ).pack(side="left", padx=5)
+        
+        ttk.Button(
+            btn_frame, 
+            text="✖ Cancel", 
+            command=cancel_action, 
+            width=20
+        ).pack(side="right", padx=5)
+    
+    
+    def _bulk_group_action(self, users, action):
+        """Handle bulk add/remove from group - requires group selection"""
+        if not self.groups_data:
+            # Auto-fetch groups if not loaded
+            self.status.config(text="Loading groups...", foreground="orange")
+            self.fetch_groups()
+            # Wait for groups to load, then retry
+            self.root.after(1500, lambda: self._bulk_group_action(users, action))
+            return
+        
+        # Show enhanced group selector dialog
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Select Group for Bulk Action")
+        dialog.geometry("500x450")
+        dialog.transient(self.root)
+        dialog.grab_set()
+        
+        # Header
+        header_frame = ttk.Frame(dialog)
+        header_frame.pack(fill="x", padx=20, pady=15)
+        
+        action_text = "Add to Group" if action == "add_group" else "Remove from Group"
+        ttk.Label(
+            header_frame, 
+            text=f"👥 {action_text}", 
+            font=("", 14, "bold")
+        ).pack()
+        
+        ttk.Label(
+            header_frame,
+            text=f"Select which group to {action_text.lower()} for {len(users)} user(s)",
+            font=("", 9),
+            foreground="gray"
+        ).pack()
+        
+        # Search box
+        search_frame = ttk.LabelFrame(dialog, text="🔍 Search Groups", padding=10)
+        search_frame.pack(fill="x", padx=20, pady=(0, 10))
+        
+        search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=search_var, font=("", 10))
+        search_entry.pack(fill="x")
+        search_entry.focus()
+        
+        # Group list
+        list_frame = ttk.LabelFrame(dialog, text="📋 Available Groups", padding=10)
+        list_frame.pack(fill="both", expand=True, padx=20, pady=(0, 10))
+        
+        # Listbox with scrollbar
+        listbox_frame = ttk.Frame(list_frame)
+        listbox_frame.pack(fill="both", expand=True)
+        
+        scrollbar = ttk.Scrollbar(listbox_frame)
+        scrollbar.pack(side="right", fill="y")
+        
+        listbox = tk.Listbox(
+            listbox_frame, 
+            yscrollcommand=scrollbar.set,
+            font=("", 10),
+            activestyle="dotbox"
+        )
+        listbox.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # Store all group names sorted
+        all_groups = sorted([g["name"] for g in self.groups_data])
+        
+        def update_list(*args):
+            """Update listbox based on search term"""
+            term = search_var.get().lower()
+            listbox.delete(0, tk.END)
+            
+            for group_name in all_groups:
+                if term in group_name.lower():
+                    listbox.insert(tk.END, group_name)
+            
+            # Show count
+            visible_count = listbox.size()
+            list_frame.config(text=f"📋 Available Groups ({visible_count} shown)")
+        
+        # Bind search
+        search_var.trace("w", update_list)
+        update_list()  # Initial population
+        
+        # Info label
+        info_label = ttk.Label(
+            dialog,
+            text="💡 Tip: Type to search, double-click or press Enter to select",
+            font=("", 8),
+            foreground="gray"
+        )
+        info_label.pack(padx=20, pady=(0, 10))
+        
+        # Buttons
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill="x", padx=20, pady=(0, 20))
+        
+        def on_ok():
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("No Selection", "Please select a group")
+                return
+            
+            group_name = listbox.get(selection[0])
+            
+            # Confirm the action
+            confirm = messagebox.askyesno(
+                "Confirm Bulk Group Action",
+                f"{action_text} '{group_name}' for {len(users)} user(s)?\n\n"
+                f"Users:\n" + "\n".join([f"  • {u['name']}" for u in users[:5]]) +
+                (f"\n  ... and {len(users) - 5} more" if len(users) > 5 else "")
+            )
+            
+            if not confirm:
+                return
+            
+            dialog.destroy()
+            
+            # Execute the bulk action
+            threading.Thread(
+                target=self._execute_bulk_action_thread, 
+                args=(users, action, group_name), 
+                daemon=True
+            ).start()
+        
+        def on_cancel():
+            dialog.destroy()
+        
+        ttk.Button(
+            btn_frame, 
+            text="✓ Select Group", 
+            command=on_ok, 
+            width=20
+        ).pack(side="left", padx=5)
+        
+        ttk.Button(
+            btn_frame, 
+            text="✖ Cancel", 
+            command=on_cancel, 
+            width=20
+        ).pack(side="right", padx=5)
+        
+        # Bind double-click and Enter key
+        listbox.bind("<Double-Button-1>", lambda e: on_ok())
+        listbox.bind("<Return>", lambda e: on_ok())
+        
+        # Bind Escape to cancel
+        dialog.bind("<Escape>", lambda e: on_cancel())
+    
+    def _execute_bulk_action_thread(self, users, action, group_name=None):
+        """Execute bulk action on multiple users"""
+        total = len(users)
+        success_count = 0
+        fail_count = 0
+        
+        self.root.after(0, lambda: self.status.config(text=f"Processing bulk action on {total} user(s)...", foreground="orange"))
+        
+        for i, user in enumerate(users, 1):
+            try:
+                self.root.after(0, lambda u=user, idx=i: self.status.config(
+                    text=f"Processing {idx}/{total}: {u['name']}...", foreground="orange"
+                ))
+                
+                if action == "deactivate":
+                    url = f"https://api.atlassian.com/users/{user['account_id']}/manage/lifecycle/disable"
+                    response = requests.post(url, headers={"Authorization": f"Bearer {self.org_api_key.get()}"}, timeout=30)
+                
+                elif action == "reactivate":
+                    url = f"https://api.atlassian.com/users/{user['account_id']}/manage/lifecycle/enable"
+                    response = requests.post(url, headers={"Authorization": f"Bearer {self.org_api_key.get()}"}, timeout=30)
+                
+                elif action == "add_group":
+                    response = requests.post(
+                        f"{self.jira_url.get().rstrip('/')}/rest/api/3/group/user",
+                        params={"groupname": group_name},
+                        json={"accountId": user['account_id']},
+                        auth=self.auth(),
+                        headers={"Accept": "application/json", "Content-Type": "application/json"},
+                        timeout=30
+                    )
+                
+                elif action == "remove_group":
+                    response = requests.delete(
+                        f"{self.jira_url.get().rstrip('/')}/rest/api/3/group/user",
+                        params={"groupname": group_name, "accountId": user['account_id']},
+                        auth=self.auth(),
+                        headers={"Accept": "application/json"},
+                        timeout=30
+                    )
+                
+                if response.status_code in [200, 201, 204]:
+                    success_count += 1
+                else:
+                    fail_count += 1
+                    print(f"Failed for {user['name']}: {response.status_code} - {response.text}")
+                
+                # Small delay to avoid rate limiting
+                time.sleep(0.5)
+                
+            except Exception as e:
+                fail_count += 1
+                print(f"Error processing {user['name']}: {str(e)}")
+        
+        # Show results
+        result_msg = f"Bulk action completed:\n\n✓ Success: {success_count}\n✗ Failed: {fail_count}"
+        self.root.after(0, lambda: messagebox.showinfo("Bulk Action Complete", result_msg))
+        self.root.after(0, lambda: self.status.config(text=f"Bulk action complete: {success_count} success, {fail_count} failed", foreground="green"))
+        
+        # Refresh user list
+        if action in ["deactivate", "reactivate"]:
+            self.root.after(0, self.fetch_users_async)
 
     # ---------------- Export ---------------- #
     def export_csv(self):
@@ -1575,6 +2514,23 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                     else:
                         writer.writerow([group_name, group_id, member_count, "", "", "", "", "", ""])
             messagebox.showinfo("Exported", f"Groups exported to {filename}")
+    
+    def export_groups_csv(self):
+        """Export groups data to CSV"""
+        if not self.groups_data:
+            messagebox.showwarning("Warning", "No groups to export.")
+            return
+        filename = f"jira_groups_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv"
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f)
+            writer.writerow(["Group Name", "Group ID", "Member Count"])
+            for g in self.groups_data:
+                writer.writerow([
+                    g.get("name", ""),
+                    g.get("groupId", ""),
+                    g.get("memberCount", "")
+                ])
+        messagebox.showinfo("Exported", f"Groups exported to {filename}")
 
 # ---------------- START ---------------- #
 if __name__ == "__main__":
