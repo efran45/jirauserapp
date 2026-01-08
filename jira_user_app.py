@@ -13,6 +13,7 @@ from dateutil import parser  # pip install python-dateutil
 import webbrowser
 import json
 import time
+from functools import partial
 
 SERVICE_NAME = "jira_user_app"
 
@@ -312,7 +313,8 @@ class JiraUserApp:
             ("name", "email", "id", "type", "status", "last_active"),
             (200, 250, 200, 100, 80, 180)
         ):
-            self.tree.heading(col, text=col.replace("_", " ").title(), command=lambda c=col: self.sort_by_column(c))
+            # Use functools.partial to ensure proper binding on all platforms
+            self.tree.heading(col, text=col.replace("_", " ").title(), command=partial(self.sort_by_column, col))
             self.tree.column(col, width=w)
 
         ysb = ttk.Scrollbar(tree_frame, orient="vertical", command=self.tree.yview)
@@ -326,7 +328,10 @@ class JiraUserApp:
         tree_frame.rowconfigure(0, weight=1)
         tree_frame.columnconfigure(0, weight=1)
 
+        # Bind both TreeviewOpen event and double-click for cross-platform compatibility
         self.tree.bind("<<TreeviewOpen>>", self.on_group_expand)
+        self.tree.bind("<Double-Button-1>", self.on_item_double_click)
+        
         self.tree.tag_configure("member", background="#f0f0f0")
         self.tree.tag_configure("product", background="#e8f4f8")
         
@@ -1256,17 +1261,64 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                     tags=("product",)
                 )
 
+    def on_item_double_click(self, event):
+        """Handle double-click to expand/collapse items (for Windows compatibility)"""
+        # Get the item that was clicked
+        item = self.tree.identify_row(event.y)
+        if not item:
+            return
+        
+        # Check if the item has children or is expandable
+        tags = self.tree.item(item, "tags")
+        
+        # If it's a group or user with expandable content
+        if "group" in tags or "user" in tags:
+            # Check current state
+            if self.tree.item(item, "open"):
+                # If already open, close it
+                self.tree.item(item, open=False)
+            else:
+                # If closed, open it (this will trigger on_group_expand via TreeviewOpen)
+                self.tree.item(item, open=True)
+                # Also manually call on_group_expand for Windows compatibility
+                self.on_group_expand(event)
+
     # ---------------- Sorting ---------------- #
     def sort_by_column(self, col):
+        """Sort tree contents by column - improved for cross-platform compatibility"""
+        # Get only top-level items (not children)
         items = [(self.tree.set(i, col), i) for i in self.tree.get_children("")]
+        
+        # Toggle sort direction
         if self.sort_column == col:
             self.sort_reverse = not self.sort_reverse
         else:
             self.sort_reverse = False
             self.sort_column = col
-        items.sort(reverse=self.sort_reverse, key=lambda x: x[0].lower() if isinstance(x[0], str) else x[0])
+        
+        # Sort items
+        try:
+            items.sort(
+                reverse=self.sort_reverse, 
+                key=lambda x: (x[0].lower() if isinstance(x[0], str) else str(x[0]))
+            )
+        except Exception as e:
+            print(f"Sort error: {e}")
+            return
+        
+        # Reorder items in the tree
         for idx, (_, iid) in enumerate(items):
             self.tree.move(iid, "", idx)
+        
+        # Update column heading to show sort direction
+        for column in ("name", "email", "id", "type", "status", "last_active"):
+            heading_text = column.replace("_", " ").title()
+            if column == col:
+                # Add arrow indicator
+                arrow = " ▼" if self.sort_reverse else " ▲"
+                self.tree.heading(column, text=heading_text + arrow)
+            else:
+                self.tree.heading(column, text=heading_text)
 
     # ---------------- Filtering ---------------- #
     def filter_data(self):
