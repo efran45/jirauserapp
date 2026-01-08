@@ -946,11 +946,15 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
 
     # ---------------- Async Wrappers ---------------- #
     def fetch_users_async(self):
+        # Auto-switch to Users view
+        self.data_notebook.select(0)  # Index 0 = Users View
         self.progress.pack(fill="x", padx=10, pady=(0,10))
         self.progress.start()
         threading.Thread(target=self.fetch_users, daemon=True).start()
 
     def fetch_groups_async(self):
+        # Auto-switch to Groups view
+        self.data_notebook.select(1)  # Index 1 = Groups View
         self.progress.pack(fill="x", padx=10, pady=(0,10))
         self.progress.start()
         threading.Thread(target=self.fetch_groups, daemon=True).start()
@@ -1192,18 +1196,40 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
         for u in users:
             account_id = u.get("account_id", "")
             name = u.get("name", "")
-            email = u.get("email", "")
+            
+            # Try multiple possible email fields (Org API can vary)
+            email = (
+                u.get("email") or 
+                u.get("emailAddress") or 
+                u.get("user_email") or
+                ""
+            )
+            
+            # For invited users, email might be in a nested field
+            if not email and "account" in u:
+                email = u["account"].get("email", "")
+            
             account_type = u.get("account_type", "")
             account_status = u.get("account_status", "")
+            
+            # Debug: print user data if no email found for invited users
+            if not email and account_status and "invited" in account_status.lower():
+                print(f"DEBUG - No email found for invited user: {name}")
+                print(f"  Account status: {account_status}")
+                print(f"  Available fields: {list(u.keys())}")
+                print(f"  Full user data: {json.dumps(u, indent=2)}")
             
             # Debug: print if email seems incomplete
             if email and "@" not in email:
                 print(f"DEBUG - Incomplete email for user {name}: '{email}'")
                 print(f"  Full user data: {u}")
             
-            # Show "(No email)" if email is empty
+            # Show "(No email)" if email is empty or show invited status
             if not email:
-                email = "(No email)"
+                if account_status and "invited" in account_status.lower():
+                    email = "(Invited - email pending)"
+                else:
+                    email = "(No email)"
             
             last_active = u.get("last_active", "")
             
@@ -1238,6 +1264,9 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                 self.users_product_access[account_id] = product_access
                 # Add placeholder to make it expandable (7 values to match column count)
                 self.tree.insert(user_item, "end", values=("", "Loading products...", "", "", "", "", ""), tags=("placeholder",))
+                print(f"DEBUG: Added expandable placeholder for user {name} with {len(product_access)} products")
+            else:
+                print(f"DEBUG: User {name} has no product_access data")
         
         # Update footer count
         self.result_count_label.config(
