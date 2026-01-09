@@ -211,7 +211,7 @@ class JiraUserApp:
         # Status
         ttk.Label(filter_row, text="Status:").pack(side="left", padx=(0, 5))
         self.status_filter = ttk.Combobox(filter_row, width=12, state="readonly")
-        self.status_filter['values'] = ("All", "Active", "Inactive", "active", "inactive")
+        self.status_filter['values'] = ("All", "Active", "Inactive", "Closed")
         self.status_filter.current(0)
         self.status_filter.pack(side="left", padx=(0, 15))
         self.status_filter.bind("<<ComboboxSelected>>", lambda e: self.filter_data())
@@ -257,6 +257,47 @@ class JiraUserApp:
         
         # Clear button
         ttk.Button(filter_row, text="Clear", command=self.clear_filters, width=8).pack(side="left")
+        
+        # Add spacer
+        ttk.Label(filter_row, text="").pack(side="left", padx=(10, 0))
+        
+        # Column visibility dropdown - just icon and clickable "Columns ▼"
+        ttk.Label(filter_row, text="👁️").pack(side="left", padx=(0, 3))
+        self.columns_button = ttk.Button(filter_row, text="Columns ▼", command=self.show_column_menu, width=12)
+        self.columns_button.pack(side="left")
+        
+        # Track column visibility
+        self.visible_columns = {
+            "select": True,
+            "name": True,
+            "email": True,
+            "id": True,
+            "type": True,
+            "status": True,
+            "last_active": True
+        }
+        
+        # Create column visibility menu (will be shown on button click)
+        self.column_menu = tk.Menu(self.root, tearoff=0)
+        
+        # Store menu variables - just checkboxes, no presets
+        self.column_vars = {}
+        for col_id, col_label in [
+            ("name", "Name"),
+            ("email", "Email"),
+            ("id", "Account ID"),
+            ("type", "Type"),
+            ("status", "Status"),
+            ("last_active", "Last Active")
+        ]:
+            var = tk.BooleanVar(value=True)
+            self.column_menu.add_checkbutton(
+                label=col_label,
+                variable=var,
+                command=lambda c=col_id: self.toggle_column_visibility(c)
+            )
+            self.column_vars[col_id] = var
+
 
         # Progress bar (shared by both sub-tabs)
         self.progress = ttk.Progressbar(parent, mode='indeterminate')
@@ -266,12 +307,22 @@ class JiraUserApp:
         # Data view - single tree shared by both Users and Groups sub-tabs
         tree_frame = ttk.Frame(parent)
         tree_frame.pack(fill="both", expand=True, pady=(0, 5))
-
+        
+        # Create custom style for the treeview
+        style = ttk.Style()
+        style.configure("Custom.Treeview", 
+                       rowheight=28,  # Taller rows for better readability
+                       font=("", 10))
+        style.configure("Custom.Treeview.Heading",
+                       font=("", 10, "bold"),
+                       background="#e8e8e8")
+        
         # Add "select" column to columns tuple
         self.tree = ttk.Treeview(
             tree_frame,
             columns=("select", "name", "email", "id", "type", "status", "last_active"),
-            show="tree headings"
+            show="tree headings",
+            style="Custom.Treeview"
         )
 
         # Configure select column
@@ -304,8 +355,26 @@ class JiraUserApp:
         self.tree.bind("<<TreeviewOpen>>", self.on_group_expand)
         self.tree.bind("<Double-Button-1>", self.on_item_double_click)
         
-        self.tree.tag_configure("member", background="#f0f0f0")
-        self.tree.tag_configure("product", background="#e8f4f8")
+        # Configure beautiful styling
+        # Alternating row colors for better readability
+        self.tree.tag_configure("oddrow", background="#f9f9f9")
+        self.tree.tag_configure("evenrow", background="#ffffff")
+        
+        # User tags with status-based colors
+        self.tree.tag_configure("user", font=("", 10))
+        self.tree.tag_configure("active", foreground="#2d7a2d")  # Green for active
+        self.tree.tag_configure("inactive", foreground="#999999")  # Gray for inactive
+        self.tree.tag_configure("invited", foreground="#0066cc", font=("", 10, "italic"))  # Blue italic for invited
+        
+        # Group tags
+        self.tree.tag_configure("group", background="#e3f2fd", font=("", 10, "bold"))  # Light blue, bold
+        self.tree.tag_configure("member", background="#f5f5f5")  # Light gray for members
+        
+        # Product tags
+        self.tree.tag_configure("product", background="#fff9e6", foreground="#cc6600")  # Light yellow bg, orange text
+        
+        # Selected row highlighting
+        self.tree.tag_configure("selected", background="#d4e7f5")  # Light blue for selected
         
         # Add right-click context menu for users
         self.tree.bind("<Button-3>", self.show_context_menu)
@@ -719,6 +788,32 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
 """
         messagebox.showinfo("How to Create Organization API Key", help_text)
 
+    
+    def show_column_menu(self):
+        """Show the column visibility menu"""
+        # Get button position
+        x = self.columns_button.winfo_rootx()
+        y = self.columns_button.winfo_rooty() + self.columns_button.winfo_height()
+        
+        # Show menu at button position
+        self.column_menu.post(x, y)
+    
+    
+    def toggle_column_visibility(self, column_id):
+        """Toggle visibility of a column and adjust widths"""
+        # Update visibility state
+        self.visible_columns[column_id] = self.column_vars[column_id].get()
+        
+        # Get list of visible columns (excluding checkbox)
+        visible_cols = [col for col in ["name", "email", "id", "type", "status", "last_active"] 
+                       if self.visible_columns.get(col, True)]
+        
+        # Update displaycolumns (checkbox is always shown)
+        self.tree['displaycolumns'] = visible_cols
+        
+        # Recalculate column widths to fill space
+        self.adjust_column_widths()
+    
     def clear_filters(self):
         self.search_var.set("")
         self.status_filter.current(0)
@@ -795,8 +890,8 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
             # Account for checkbox column (fixed 30px) and scrollbar (~20px)
             available_width = tree_width - 30 - 20
             
-            # Define proportions for each column (should sum to 1.0)
-            proportions = {
+            # Base proportions for each column
+            base_proportions = {
                 "name": 0.20,        # 20%
                 "email": 0.25,       # 25%
                 "id": 0.20,          # 20%
@@ -805,9 +900,21 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                 "last_active": 0.17  # 17%
             }
             
-            # Calculate and set widths
-            for col, proportion in proportions.items():
-                width = int(available_width * proportion)
+            # Get only visible columns
+            visible_cols = [col for col in ["name", "email", "id", "type", "status", "last_active"] 
+                          if self.visible_columns.get(col, True)]
+            
+            if not visible_cols:
+                return
+            
+            # Calculate total proportion of visible columns
+            total_visible_proportion = sum(base_proportions[col] for col in visible_cols)
+            
+            # Redistribute proportions among visible columns
+            for col in visible_cols:
+                # Normalize proportion to sum to 1.0 for visible columns
+                normalized_proportion = base_proportions[col] / total_visible_proportion
+                width = int(available_width * normalized_proportion)
                 self.tree.column(col, width=width)
         except Exception as e:
             # If anything goes wrong, silently continue
@@ -1151,7 +1258,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
         self.clear_tree()
         # For standard API, we don't have product access data
         # So we won't make users expandable
-        for u in users:
+        for idx, u in enumerate(users):
             last_active = "N/A (use Org API)"
             
             email = u.get("emailAddress", "")
@@ -1163,6 +1270,15 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
             # Show "(No email)" if email is empty
             if not email:
                 email = "(No email)"
+            
+            # Determine status and tags
+            is_active = u.get("active")
+            status_text = "Active" if is_active else "Inactive"
+            
+            # Build tags list: alternating row + status + user
+            tags = ["user"]
+            tags.append("oddrow" if idx % 2 == 0 else "evenrow")
+            tags.append("active" if is_active else "inactive")
 
             self.tree.insert(
                 "",
@@ -1173,10 +1289,10 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                     email,
                     u.get("accountId", ""),
                     u.get("accountType", ""),
-                    "Active" if u.get("active") else "Inactive",
+                    status_text,
                     last_active
                 ),
-                tags=("user",)  # Add user tag for selection
+                tags=tuple(tags)
             )
         
         # Update footer count
@@ -1193,7 +1309,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
         # Enable tree view for expandable users
         self.tree.configure(show="tree headings")
         
-        for u in users:
+        for idx, u in enumerate(users):
             account_id = u.get("account_id", "")
             name = u.get("name", "")
             
@@ -1241,6 +1357,20 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                     print(f"Error parsing date for {name}: {e}, raw value: {last_active}")
             else:
                 last_active = "Never logged in"
+            
+            # Determine tags based on status
+            tags = ["user"]
+            tags.append("oddrow" if idx % 2 == 0 else "evenrow")
+            
+            # Add status-based tag
+            if account_status:
+                status_lower = account_status.lower()
+                if "active" in status_lower and "inactive" not in status_lower:
+                    tags.append("active")
+                elif "inactive" in status_lower:
+                    tags.append("inactive")
+                elif "invited" in status_lower:
+                    tags.append("invited")
 
             # Insert user as expandable item
             user_item = self.tree.insert(
@@ -1255,7 +1385,7 @@ Note: Use an UNSCOPED API key for full access to user endpoints.
                     account_status,
                     last_active
                 ),
-                tags=("user",)
+                tags=tuple(tags)
             )
             
             # Store product access data for this user
